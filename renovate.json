@@ -1,0 +1,34 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "UTC",
+  "schedule": ["before 6am on the first day of the month"],
+  "prConcurrentLimit": 5,
+  "minimumReleaseAge": "3 days",
+  "packageRules": [
+    {
+      "description": "Keep the OpenCode API dependencies aligned",
+      "matchPackageNames": [
+        "@opencode-ai/plugin",
+        "@opencode-ai/sdk",
+        "@opentui/core"
+      ],
+      "groupName": "OpenCode plugin API"
+    },
+    {
+      "description": "Group non-major development dependency updates",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pin", "pinDigest"],
+      "groupName": "non-major development dependencies"
+    },
+    {
+      "description": "Group GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    }
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first day of the month"]
+  }
+}

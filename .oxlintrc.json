@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "plugins": ["import", "promise", "typescript", "unicorn"],
+  "options": {
+    "reportUnusedDisableDirectives": "error"
+  },
+  "rules": {
+    "unicorn/no-array-sort": "off"
+  },
+  "ignorePatterns": [
+    ".artifacts/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**"
+  ]
+}
