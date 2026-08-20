@@ -7,9 +7,9 @@
 
 ## Metric Contract
 
-- TPS is weighted throughput: total output plus reasoning tokens divided by total generation-window time. Never average per-step TPS values.
-- A step's window runs from its first text, reasoning, or tool-input delta through its latest matching end event. Never use message-completion, tool-result, tool-execution, or inter-step waiting time.
-- Historical estimates use only persisted text/reasoning part timestamps; omit historical pure tool-call steps. A precise event sample replaces the estimate with the same assistant message ID.
+- TPS is weighted throughput: total output plus reasoning tokens divided by total model-request time. Never average per-step TPS values.
+- A step's request runs from `session.next.step.started` through its latest text, reasoning, or tool-input end event. This includes time to first token but never uses message completion, tool results, tool execution, or inter-step waiting time.
+- Historical estimates run from the assistant message creation timestamp through its latest persisted text/reasoning part end; omit historical pure tool-call steps. A precise event sample replaces the estimate with the same assistant message ID.
 - Metric-semantic changes require contract tests and a matching update to `docs/requirements.md`. The plugin must remain free of telemetry and network requests.
 
 ## Compatibility
