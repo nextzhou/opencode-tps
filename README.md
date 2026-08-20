@@ -1,30 +1,40 @@
 # opencode-tps
 
-An OpenCode TUI plugin that displays request-level session and per-model tokens-per-second metrics in the sidebar.
+An OpenCode TUI plugin that displays request-level session and per-model tokens-per-second (TPS) metrics in the sidebar.
 
 ## Features
 
-- Weighted TPS for the complete session
+- Weighted throughput across all model requests in the session
 - Separate metrics by provider, model, and variant
 - Output and reasoning token accounting
 - Time to first token included
-- Tool execution and wait time excluded
+- Tool execution and inter-request waiting excluded
 - Historical session estimates after restart
 - No telemetry or network requests
 
 ## Requirements
 
-- OpenCode 1.18 or newer within major version 1
+- OpenCode `>=1.18.0 <2`
 
 ## Installation
 
-After the package is published to npm:
+Install the plugin globally from npm:
 
 ```bash
 opencode plugin @nextzhou/opencode-tps -g
 ```
 
-Restart OpenCode, then press `Ctrl+X`, followed by `B`, to open the sidebar.
+Start or restart OpenCode, then press `Ctrl+X`, followed by lowercase `b`, to open the sidebar. This is the default `sidebar_toggle` keybinding and may differ if you customized `tui.json`.
+
+### Upgrade
+
+Replace an existing installation with the latest published version:
+
+```bash
+opencode plugin @nextzhou/opencode-tps -g --force
+```
+
+### Load a Local Checkout
 
 For local development, add the project directory to the `plugin` array in your global `tui.json`:
 
@@ -37,20 +47,22 @@ For local development, add the project directory to the `plugin` array in your g
 
 ## Metric
 
-The plugin calculates a weighted average:
+The plugin calculates weighted throughput by aggregating tokens and request durations. It never averages individual request TPS values:
 
 ```text
 TPS = sum(output tokens + reasoning tokens) / sum(model request durations)
 ```
 
-A request duration begins when OpenCode starts a model step and ends with its final text, reasoning, or tool-input event. This includes request startup and time to first token. Message completion and tool-result timestamps are not used, so tool execution and waiting between model steps are excluded.
+A request duration begins at `session.next.step.started` and ends at the latest text, reasoning, or tool-input end event for that model request. This includes request startup and time to first token. Step completion and tool-result timestamps are deliberately not used, so tool execution and waiting between model requests are excluded.
 
 When precise stream events are unavailable for an older message, the plugin estimates its request window from the assistant message creation timestamp through the final persisted text or reasoning part. Pure tool-call historical steps without those timestamps are omitted.
 
 ## Development
 
+Development requires Bun `1.3.14`.
+
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run check
 bun run pack:check
 ```
