@@ -1,12 +1,13 @@
 # opencode-tps
 
-An OpenCode TUI plugin that displays tool-wait-free session and per-model tokens-per-second metrics in the sidebar.
+An OpenCode TUI plugin that displays request-level session and per-model tokens-per-second metrics in the sidebar.
 
 ## Features
 
 - Weighted TPS for the complete session
 - Separate metrics by provider, model, and variant
 - Output and reasoning token accounting
+- Time to first token included
 - Tool execution and wait time excluded
 - Historical session estimates after restart
 - No telemetry or network requests
@@ -39,12 +40,12 @@ For local development, add the project directory to the `plugin` array in your g
 The plugin calculates a weighted average:
 
 ```text
-TPS = sum(output tokens + reasoning tokens) / sum(generation durations)
+TPS = sum(output tokens + reasoning tokens) / sum(model request durations)
 ```
 
-A generation duration begins with the first text, reasoning, or tool-input delta and ends with its final output event. Completion timestamps and tool-result timestamps are not used, so tool execution and waiting between model steps are excluded.
+A request duration begins when OpenCode starts a model step and ends with its final text, reasoning, or tool-input event. This includes request startup and time to first token. Message completion and tool-result timestamps are not used, so tool execution and waiting between model steps are excluded.
 
-When precise stream events are unavailable for an older message, the plugin estimates its generation window from persisted text and reasoning part timestamps. Pure tool-call historical steps without those timestamps are omitted.
+When precise stream events are unavailable for an older message, the plugin estimates its request window from the assistant message creation timestamp through the final persisted text or reasoning part. Pure tool-call historical steps without those timestamps are omitted.
 
 ## Development
 

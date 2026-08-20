@@ -27,7 +27,7 @@ function sample(
 }
 
 describe("summarizeTps", () => {
-  test("uses token-weighted generation time for the session and each model", () => {
+  test("uses token-weighted request time for the session and each model", () => {
     const summary = summarizeTps([
       sample("one", modelA, 100, 1000, 1),
       sample("two", modelA, 300, 3000, 2),
@@ -54,84 +54,69 @@ describe("summarizeTps", () => {
 });
 
 describe("SessionTpsTracker", () => {
-  test("excludes tool wait between model steps", () => {
+  test("includes request startup and excludes tool execution", () => {
     const tracker = new SessionTpsTracker();
     tracker.startStep({
       sessionID: "session",
       messageID: "one",
       model: modelA,
-    });
-    tracker.observeOutput({
-      sessionID: "session",
-      messageID: "one",
       timestamp: 1000,
     });
     tracker.finishOutput({
       sessionID: "session",
       messageID: "one",
-      timestamp: 2000,
+      timestamp: 3000,
     });
+
+    // Completion occurs after tool execution, but only the output end is used.
     tracker.completeStep({
       sessionID: "session",
       messageID: "one",
       outputTokens: 60,
       reasoningTokens: 40,
-      completedAt: 10_000,
     });
 
-    // The ten-second gap represents tool execution and is not observed.
     tracker.startStep({
       sessionID: "session",
       messageID: "two",
       model: modelA,
-    });
-    tracker.observeOutput({
-      sessionID: "session",
-      messageID: "two",
       timestamp: 12_000,
     });
     tracker.finishOutput({
       sessionID: "session",
       messageID: "two",
-      timestamp: 14_000,
+      timestamp: 16_000,
     });
     tracker.completeStep({
       sessionID: "session",
       messageID: "two",
       outputTokens: 150,
       reasoningTokens: 50,
-      completedAt: 20_000,
     });
 
     const summary = tracker.summary("session");
     expect(summary.total.tokens).toBe(300);
-    expect(summary.total.durationMs).toBe(3000);
-    expect(summary.total.tps).toBe(100);
+    expect(summary.total.durationMs).toBe(6000);
+    expect(summary.total.tps).toBe(50);
   });
 
   test("keeps switched models separate", () => {
     const tracker = new SessionTpsTracker();
-    for (const [messageID, model] of [
-      ["one", modelA],
-      ["two", modelB],
+    for (const [messageID, model, timestamp] of [
+      ["one", modelA, 1000],
+      ["two", modelB, 3000],
     ] as const) {
-      tracker.startStep({ sessionID: "session", messageID, model });
-      tracker.observeOutput({
-        sessionID: "session",
-        messageID,
-        timestamp: 1000,
-      });
+      tracker.startStep({ sessionID: "session", messageID, model, timestamp });
       tracker.finishOutput({
         sessionID: "session",
         messageID,
-        timestamp: 2000,
+        timestamp: timestamp + 1000,
       });
       tracker.completeStep({
         sessionID: "session",
         messageID,
         outputTokens: 100,
         reasoningTokens: 0,
-        completedAt: model === modelA ? 1 : 2,
       });
     }
 
@@ -148,10 +133,6 @@ describe("SessionTpsTracker", () => {
       sessionID: "session",
       messageID: "one",
       model: modelA,
-    });
-    tracker.observeOutput({
-      sessionID: "session",
-      messageID: "one",
       timestamp: 1000,
     });
     tracker.finishOutput({
@@ -164,7 +145,6 @@ describe("SessionTpsTracker", () => {
       messageID: "one",
       outputTokens: 75,
       reasoningTokens: 25,
-      completedAt: 2,
     });
 
     const summary = tracker.summary("session", [
@@ -176,24 +156,26 @@ describe("SessionTpsTracker", () => {
 
   test("temporarily excludes precise samples outside a reverted range", () => {
     const tracker = new SessionTpsTracker();
-    for (const messageID of ["visible", "reverted"]) {
-      tracker.startStep({ sessionID: "session", messageID, model: modelA });
-      tracker.observeOutput({
+    for (const [messageID, timestamp] of [
+      ["visible", 1000],
+      ["reverted", 3000],
+    ] as const) {
+      tracker.startStep({
         sessionID: "session",
         messageID,
-        timestamp: 1000,
+        model: modelA,
+        timestamp,
       });
       tracker.finishOutput({
         sessionID: "session",
         messageID,
-        timestamp: 2000,
+        timestamp: timestamp + 1000,
       });
       tracker.completeStep({
         sessionID: "session",
         messageID,
         outputTokens: 100,
         reasoningTokens: 0,
-        completedAt: messageID === "visible" ? 1 : 2,
       });
     }
 

@@ -61,14 +61,13 @@ function historicalSnapshot(
     });
     if (windows.length === 0) continue;
 
-    const firstOutputAt = Math.min(...windows.map((window) => window.start));
-    const lastOutputAt = Math.max(...windows.map((window) => window.end));
+    const outputEndedAt = Math.max(...windows.map((window) => window.end));
     samples.push({
       messageID: message.id,
       model: modelIdentity(message),
       tokens: message.tokens.output + message.tokens.reasoning,
-      durationMs: lastOutputAt - firstOutputAt,
-      completedAt: message.time.completed,
+      durationMs: outputEndedAt - message.time.created,
+      completedAt: outputEndedAt,
     });
   }
   return {
@@ -209,29 +208,9 @@ const plugin: TuiPluginModule & { id: string } = {
         sessionID: event.properties.sessionID,
         messageID: event.properties.assistantMessageID,
         model: event.properties.model,
+        timestamp: event.properties.timestamp,
       });
     });
-
-    const observeOutput = (input: {
-      sessionID: string;
-      assistantMessageID: string;
-      timestamp: number;
-    }) => {
-      tracker.observeOutput({
-        sessionID: input.sessionID,
-        messageID: input.assistantMessageID,
-        timestamp: input.timestamp,
-      });
-    };
-    api.event.on("session.next.text.delta", (event) =>
-      observeOutput(event.properties),
-    );
-    api.event.on("session.next.reasoning.delta", (event) =>
-      observeOutput(event.properties),
-    );
-    api.event.on("session.next.tool.input.delta", (event) =>
-      observeOutput(event.properties),
-    );
 
     const finishOutput = (input: {
       sessionID: string;
@@ -265,7 +244,6 @@ const plugin: TuiPluginModule & { id: string } = {
         ),
         outputTokens: event.properties.tokens.output,
         reasoningTokens: event.properties.tokens.reasoning,
-        completedAt: event.properties.timestamp,
       });
       refresh(event.properties.sessionID);
     });

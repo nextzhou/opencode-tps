@@ -32,8 +32,8 @@ export type SessionTpsSummary = {
 type ActiveStep = {
   sessionID: string;
   model?: ModelIdentity;
-  firstOutputAt?: number;
-  lastOutputAt?: number;
+  requestStartedAt: number;
+  outputEndedAt?: number;
 };
 
 type StepRef = {
@@ -103,37 +103,24 @@ export class SessionTpsTracker {
   private readonly active = new Map<string, ActiveStep>();
   private readonly completed = new Map<string, Map<string, TpsSample>>();
 
-  startStep(input: StepRef & { model: ModelIdentity }): void {
+  startStep(
+    input: StepRef & { model: ModelIdentity; timestamp: number },
+  ): void {
+    if (!Number.isFinite(input.timestamp)) return;
+
     this.active.set(input.messageID, {
       sessionID: input.sessionID,
       model: input.model,
+      requestStartedAt: input.timestamp,
     });
-  }
-
-  observeOutput(input: StepRef & { timestamp: number }): void {
-    if (!Number.isFinite(input.timestamp)) return;
-
-    const step = this.active.get(input.messageID) ?? {
-      sessionID: input.sessionID,
-    };
-    step.firstOutputAt ??= input.timestamp;
-    step.lastOutputAt = Math.max(
-      step.lastOutputAt ?? input.timestamp,
-      input.timestamp,
-    );
-    this.active.set(input.messageID, step);
   }
 
   finishOutput(input: StepRef & { timestamp: number }): void {
     const step = this.active.get(input.messageID);
-    if (
-      step?.firstOutputAt === undefined ||
-      !Number.isFinite(input.timestamp)
-    ) {
-      return;
-    }
-    step.lastOutputAt = Math.max(
-      step.lastOutputAt ?? step.firstOutputAt,
+    if (!step || !Number.isFinite(input.timestamp)) return;
+
+    step.outputEndedAt = Math.max(
+      step.outputEndedAt ?? input.timestamp,
       input.timestamp,
     );
   }
@@ -143,21 +130,20 @@ export class SessionTpsTracker {
       model?: ModelIdentity;
       outputTokens: number;
       reasoningTokens: number;
-      completedAt: number;
     },
   ): TpsSample | undefined {
     const step = this.active.get(input.messageID);
     this.active.delete(input.messageID);
 
     const model = step?.model ?? input.model;
-    const firstOutputAt = step?.firstOutputAt;
-    const lastOutputAt = step?.lastOutputAt;
+    const requestStartedAt = step?.requestStartedAt;
+    const outputEndedAt = step?.outputEndedAt;
     const tokens = input.outputTokens + input.reasoningTokens;
     if (
       !model ||
-      firstOutputAt === undefined ||
-      lastOutputAt === undefined ||
-      lastOutputAt <= firstOutputAt ||
+      requestStartedAt === undefined ||
+      outputEndedAt === undefined ||
+      outputEndedAt <= requestStartedAt ||
       tokens <= 0 ||
       !Number.isFinite(tokens)
     ) {
@@ -168,8 +154,8 @@ export class SessionTpsTracker {
       messageID: input.messageID,
       model,
       tokens,
-      durationMs: lastOutputAt - firstOutputAt,
-      completedAt: input.completedAt,
+      durationMs: outputEndedAt - requestStartedAt,
+      completedAt: outputEndedAt,
     };
     const session = this.completed.get(input.sessionID) ?? new Map();
     session.set(input.messageID, sample);
