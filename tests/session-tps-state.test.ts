@@ -173,4 +173,36 @@ describe("SessionTpsTracker", () => {
     expect(summary.total.tokens).toBe(100);
     expect(summary.total.samples).toBe(1);
   });
+
+  test("temporarily excludes precise samples outside a reverted range", () => {
+    const tracker = new SessionTpsTracker();
+    for (const messageID of ["visible", "reverted"]) {
+      tracker.startStep({ sessionID: "session", messageID, model: modelA });
+      tracker.observeOutput({
+        sessionID: "session",
+        messageID,
+        timestamp: 1000,
+      });
+      tracker.finishOutput({
+        sessionID: "session",
+        messageID,
+        timestamp: 2000,
+      });
+      tracker.completeStep({
+        sessionID: "session",
+        messageID,
+        outputTokens: 100,
+        reasoningTokens: 0,
+        completedAt: messageID === "visible" ? 1 : 2,
+      });
+    }
+
+    const reverted = tracker.summary("session", [], new Set(["visible"]));
+    expect(reverted.total.tokens).toBe(100);
+    expect(reverted.total.samples).toBe(1);
+
+    const restored = tracker.summary("session");
+    expect(restored.total.tokens).toBe(200);
+    expect(restored.total.samples).toBe(2);
+  });
 });

@@ -21,6 +21,7 @@ OpenCode exposes token counts and total response duration, but it does not show 
 - [x] Track generation windows from streaming output events.
 - [x] Exclude time outside generation windows, including tool execution.
 - [x] Reconstruct approximate historical metrics from stored text and reasoning part timestamps.
+- [x] Exclude reverted messages from metrics while an undo is staged and restore them on redo.
 
 ### Future
 
@@ -37,7 +38,7 @@ OpenCode exposes token counts and total response duration, but it does not show 
 
 ## Architecture
 
-`src/tui.ts` adapts OpenCode TUI events and renders the sidebar. `src/session-tps-state.ts` owns framework-independent generation tracking and weighted aggregation. Event-derived samples replace historical estimates for the same assistant message.
+`src/tui.ts` adapts OpenCode TUI events and renders the sidebar. `src/session-tps-state.ts` owns framework-independent generation tracking and weighted aggregation. Event-derived samples replace historical estimates for the same assistant message. A staged revert filters both historical and event-derived samples at OpenCode's message boundary without deleting them, so redo restores the original metrics.
 
 The session metric is:
 
@@ -62,6 +63,7 @@ Each model step has its own generation window. Time between steps is never added
 
 ## Change Log
 
-| Date       | Change               | Author   |
-| ---------- | -------------------- | -------- |
-| 2026-08-20 | Initial requirements | nextzhou |
+| Date       | Change                        | Author   |
+| ---------- | ----------------------------- | -------- |
+| 2026-08-20 | Initial requirements          | nextzhou |
+| 2026-08-20 | Define undo and redo behavior | nextzhou |

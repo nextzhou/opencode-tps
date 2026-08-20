@@ -18,6 +18,11 @@ type SidebarView = {
   content: TextRenderable;
 };
 
+type HistoricalSnapshot = {
+  samples: TpsSample[];
+  includedMessageIDs?: ReadonlySet<string>;
+};
+
 let renderID = 0;
 
 function modelIdentity(message: AssistantMessage): ModelIdentity {
@@ -28,9 +33,19 @@ function modelIdentity(message: AssistantMessage): ModelIdentity {
   };
 }
 
-function historicalSamples(api: TuiPluginApi, sessionID: string): TpsSample[] {
+function historicalSnapshot(
+  api: TuiPluginApi,
+  sessionID: string,
+  revertedMessageID?: string,
+): HistoricalSnapshot {
+  const messages = api.state.session.messages(sessionID);
+  const revertIndex = revertedMessageID
+    ? messages.findIndex((message) => message.id === revertedMessageID)
+    : -1;
+  const visibleMessages =
+    revertIndex >= 0 ? messages.slice(0, revertIndex) : messages;
   const samples: TpsSample[] = [];
-  for (const message of api.state.session.messages(sessionID)) {
+  for (const message of visibleMessages) {
     if (
       message.role !== "assistant" ||
       message.error ||
@@ -56,7 +71,13 @@ function historicalSamples(api: TuiPluginApi, sessionID: string): TpsSample[] {
       completedAt: message.time.completed,
     });
   }
-  return samples;
+  return {
+    samples,
+    includedMessageIDs:
+      revertIndex >= 0
+        ? new Set(visibleMessages.map((message) => message.id))
+        : undefined,
+  };
 }
 
 function variantName(variant: string): string {
@@ -121,11 +142,24 @@ const plugin: TuiPluginModule & { id: string } = {
     const tracker = new SessionTpsTracker();
     const views = new Set<SidebarView>();
 
-    const refresh = (sessionID: string) => {
-      const text = summaryText(
-        api,
-        tracker.summary(sessionID, historicalSamples(api, sessionID)),
+    const sessionSummary = (
+      sessionID: string,
+      revertOverride?: string | null,
+    ) => {
+      const revertedMessageID =
+        revertOverride === undefined
+          ? api.state.session.get(sessionID)?.revert?.messageID
+          : (revertOverride ?? undefined);
+      const historical = historicalSnapshot(api, sessionID, revertedMessageID);
+      return tracker.summary(
+        sessionID,
+        historical.samples,
+        historical.includedMessageIDs,
       );
+    };
+
+    const refresh = (sessionID: string, revertOverride?: string | null) => {
+      const text = summaryText(api, sessionSummary(sessionID, revertOverride));
       for (const view of views) {
         if (view.content.isDestroyed) {
           views.delete(view);
@@ -155,13 +189,7 @@ const plugin: TuiPluginModule & { id: string } = {
           });
           const content = new TextRenderable(api.renderer, {
             id: `opencode-tps-content-${id}`,
-            content: summaryText(
-              api,
-              tracker.summary(
-                props.session_id,
-                historicalSamples(api, props.session_id),
-              ),
-            ),
+            content: summaryText(api, sessionSummary(props.session_id)),
             fg: context.theme.current.textMuted,
             wrapMode: "word",
           });
@@ -243,6 +271,15 @@ const plugin: TuiPluginModule & { id: string } = {
     });
     api.event.on("session.next.step.failed", (event) => {
       tracker.failStep(event.properties.assistantMessageID);
+    });
+    api.event.on("session.next.revert.staged", (event) => {
+      refresh(event.properties.sessionID, event.properties.revert.messageID);
+    });
+    api.event.on("session.next.revert.cleared", (event) => {
+      refresh(event.properties.sessionID, null);
+    });
+    api.event.on("session.next.revert.committed", (event) => {
+      refresh(event.properties.sessionID, event.properties.messageID);
     });
     api.event.on("message.removed", (event) => {
       tracker.removeMessage(
