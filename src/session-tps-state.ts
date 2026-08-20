@@ -189,10 +189,15 @@ export class SessionTpsTracker {
   summary(
     sessionID: string,
     historicalSamples: Iterable<TpsSample> = [],
+    includedMessageIDs?: ReadonlySet<string>,
   ): SessionTpsSummary {
+    const completedSamples = this.completed.get(sessionID)?.values() ?? [];
     return summarizeTps([
       ...historicalSamples,
-      ...(this.completed.get(sessionID)?.values() ?? []),
+      ...Array.from(completedSamples).filter(
+        (sample) =>
+          !includedMessageIDs || includedMessageIDs.has(sample.messageID),
+      ),
     ]);
   }
 }
