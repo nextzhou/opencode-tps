@@ -136,8 +136,33 @@ function setup(context: Context) {
       if (message.type !== "assistant" || message.error || !message.tokens) {
         continue;
       }
-      const outputEndedAt = message.time?.completed;
+      // Contract: omit historical pure tool-call steps — require evidence of
+      // text/reasoning output in the message content.
+      const hasOutputEvidence = (message.content ?? []).some(
+        (part) => part?.type === "text" || part?.type === "reasoning",
+      );
+      if (!hasOutputEvidence) continue;
+
+      const reasoningEnds = (message.content ?? [])
+        .filter(
+          (part) => part?.type === "reasoning" && part.time?.completed != null,
+        )
+        .map((part) => part.time!.completed as number);
+      // `streamed` marks the end of ALL streamed content — including text
+      // after the reasoning — while `completed` may include the wait for a
+      // tool execution to finish. So `streamed` wins when it exists (like the
+      // live path, which takes the max of the streaming ends), `completed` is
+      // only a fallback, and the output never ends below the reasoning end.
+      const streamed = message.time?.streamed;
+      const outputEndedAt =
+        streamed !== undefined
+          ? Math.max(streamed, ...reasoningEnds)
+          : reasoningEnds.length > 0
+            ? Math.max(...reasoningEnds)
+            : message.time?.completed;
       if (outputEndedAt == null) continue;
+      // Malformed window (end <= start): drop it with the intent stated
+      // here; the engine would discard the non-positive duration anyway.
       if (outputEndedAt <= message.time.created) continue;
       samples.push({
         messageID: message.id,

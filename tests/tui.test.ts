@@ -60,7 +60,7 @@ function assistantMessage(id: string, tokens: number, completed?: number) {
       created: (completed ?? 0) - 1000,
       ...(completed !== undefined ? { completed } : {}),
     },
-    content: [] as Record<string, unknown>[],
+    content: [{ type: "text", text: "response" }] as Record<string, unknown>[],
   };
 }
 
@@ -157,6 +157,108 @@ test("measures from request start to output end", () => {
   });
 
   expect(content.content).toBe("Session avg  50.0 tok/s\nGPT-5.4  50.0 tok/s");
+});
+
+test("uses the stream completion time for text-only history", () => {
+  // The helper has no `streamed` field: write the message by hand.
+  const textOnly = {
+    id: "text-only",
+    type: "assistant",
+    model: { providerID: "openai", id: "gpt-5.4" },
+    tokens: {
+      input: 0,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    time: { created: 1000, completed: 5000, streamed: 2500 },
+    content: [{ type: "text", text: "..." }],
+  };
+  const { content } = renderSidebar({ messages: [textOnly] });
+
+  expect(content.content).toBe("Session avg  66.7 tok/s\nGPT-5.4  66.7 tok/s");
+});
+
+test("uses the reasoning end time to exclude tool waits", () => {
+  // The reasoning window is anchored to the absolute message clock:
+  // the sample must end at the reasoning end (8500), not at message
+  // completion (9000), which would include the tool wait that follows.
+  const reasoned = assistantMessage("reasoned", 100, 9000);
+  reasoned.content.push({
+    type: "reasoning",
+    time: { created: 8000, completed: 8500 },
+  });
+  const { content } = renderSidebar({ messages: [reasoned] });
+
+  expect(content.content).toBe(
+    "Session avg  200.0 tok/s\nGPT-5.4  200.0 tok/s",
+  );
+});
+
+test("counts streamed text after reasoning but excludes the tool wait that follows", () => {
+  // Reasoning ends at 8500, streamed text continues until 8700, and the
+  // tool runs until completed=9500 (wait, excluded — same as the live
+  // path). The correct duration is 8700-8000 = 700 ms.
+  const reasonedStreamed = {
+    id: "reasoned-streamed",
+    type: "assistant",
+    model: { providerID: "openai", id: "gpt-5.4" },
+    tokens: {
+      input: 0,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    time: { created: 8000, streamed: 8700, completed: 9500 },
+    content: [{ type: "reasoning", time: { created: 8000, completed: 8500 } }],
+  };
+  const { content } = renderSidebar({ messages: [reasonedStreamed] });
+
+  expect(content.content).toBe(
+    "Session avg  142.9 tok/s\nGPT-5.4  142.9 tok/s",
+  );
+});
+
+test("drops history whose end precedes the message start", () => {
+  // Malformed window (end < start). The engine already discards
+  // non-positive durations; this test pins it as a historical-path rule.
+  const malformed = {
+    id: "malformed",
+    type: "assistant",
+    model: { providerID: "openai", id: "gpt-5.4" },
+    tokens: {
+      input: 0,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    time: { created: 9000, streamed: 8500 },
+    content: [],
+  };
+  const { content } = renderSidebar({ messages: [malformed] });
+
+  expect(content.content).toBe("Waiting for completed output");
+});
+
+test("omits historical pure tool-call steps", () => {
+  // Upstream contract: "omit historical pure tool-call steps" — a message
+  // whose content is only tool parts has no text/reasoning output evidence.
+  const toolOnly = {
+    id: "tool-only",
+    type: "assistant",
+    model: { providerID: "openai", id: "gpt-5.4" },
+    tokens: {
+      input: 0,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    time: { created: 1000, completed: 3000 },
+    content: [{ type: "tool", tool: "shell", time: { completed: 3000 } }],
+  };
+  const { content } = renderSidebar({ messages: [toolOnly] });
+
+  expect(content.content).toBe("Waiting for completed output");
 });
 
 test("respects persisted reverts and adapts their lifecycle events", () => {
