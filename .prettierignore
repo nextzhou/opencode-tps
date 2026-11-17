@@ -2,3 +2,6 @@ dist/
 node_modules/
 .artifacts/
 bun.lock
+
+# Agent execution workspace (task briefs, ledgers) - not part of the package
+.superpowers/
