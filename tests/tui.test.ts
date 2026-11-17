@@ -13,11 +13,23 @@ class FakeBoxRenderable {
 }
 
 class FakeTextRenderable {
-  content: string;
   isDestroyed = false;
+  writesAfterDestroy = 0;
+  private text: string;
 
   constructor(_renderer: unknown, options: { content: string }) {
-    this.content = options.content;
+    this.text = options.content;
+  }
+
+  get content(): string {
+    return this.text;
+  }
+
+  set content(value: string) {
+    // Mock instrumentation: count writes to destroyed views, which the
+    // refresh prune must prevent.
+    if (this.isDestroyed) this.writesAfterDestroy += 1;
+    this.text = value;
   }
 }
 
@@ -94,7 +106,10 @@ function renderSidebar(input: {
           input.revertedMessageID
             ? { revert: { messageID: input.revertedMessageID } }
             : undefined,
-        message: { list: () => input.messages },
+        message: {
+          // The "other" session has no messages (multi-session view test).
+          list: (id?: string) => (id === "other" ? [] : input.messages),
+        },
       },
       location: {
         default: () => "loc",
@@ -118,7 +133,13 @@ function renderSidebar(input: {
   const box = render({ sessionID: "session" }) as FakeBoxRenderable;
   const content = box.children[1];
   if (!content) throw new Error("sidebar content was not rendered");
-  return { content, handlers, cleanup, isDissolved: () => slotDissolved };
+  return {
+    content,
+    handlers,
+    claims,
+    cleanup,
+    isDissolved: () => slotDissolved,
+  };
 }
 
 test("setup is a no-op without a UI context", () => {
@@ -539,4 +560,55 @@ test("disambiguates identical model names across providers", () => {
       "GPT-5.4 (Anthropic)  100.0 tok/s\n" +
       "GPT-5.4 (OpenAI)  100.0 tok/s",
   );
+});
+
+test("prunes destroyed views without writing to them", () => {
+  // A destroyed view (screen/session change) must not receive writes, and
+  // the live views must still update.
+  const messages = [assistantMessage("msg-a", 100, 2000)];
+  const { content, handlers, claims } = renderSidebar({ messages });
+  const claim = claims.find((entry) => entry.append === "sidebar.content");
+  if (!claim) throw new Error("sidebar.content claim was not registered");
+  const render = claim.render as (props: {
+    sessionID: string;
+  }) => FakeBoxRenderable;
+  const second = render({ sessionID: "session" }).children[1];
+
+  content.isDestroyed = true;
+  messages.push(assistantMessage("msg-b", 300, 4000));
+  handlers.get("session.revert.cleared")?.({ data: { sessionID: "session" } });
+
+  expect(content.writesAfterDestroy).toBe(0);
+  expect(second.content).toBe("Session avg  200.0 tok/s\nGPT-5.4  200.0 tok/s");
+});
+
+test("updates only the view whose session changed", () => {
+  // A view for another session coexisting in the set: an event for
+  // "session" must not touch the text of "other".
+  const messages = [assistantMessage("msg-a", 100, 2000)];
+  const { content, handlers, claims } = renderSidebar({ messages });
+  const claim = claims.find((entry) => entry.append === "sidebar.content");
+  if (!claim) throw new Error("sidebar.content claim was not registered");
+  const render = claim.render as (props: {
+    sessionID: string;
+  }) => FakeBoxRenderable;
+  const other = render({ sessionID: "other" }).children[1];
+  expect(other.content).toBe("Waiting for completed output");
+
+  handlers.get("session.revert.cleared")?.({ data: { sessionID: "session" } });
+
+  expect(content.content).toBe(
+    "Session avg  100.0 tok/s\nGPT-5.4  100.0 tok/s",
+  );
+  expect(other.content).toBe("Waiting for completed output");
+});
+
+test("returns a cleanup that unsubscribes events and dissolves the slot claim", () => {
+  const { handlers, cleanup, isDissolved } = renderSidebar({ messages: [] });
+
+  expect(isDissolved()).toBe(false);
+  expect(handlers.size).toBeGreaterThan(0);
+  cleanup();
+  expect(handlers.size).toBe(0);
+  expect(isDissolved()).toBe(true);
 });

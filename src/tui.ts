@@ -233,7 +233,16 @@ function setup(context: Context) {
   const refresh = (sessionID: string, revertOverride?: string | null) => {
     const text = summaryText(sessionSummary(sessionID, revertOverride));
     for (const view of views) {
-      view.content.content = text;
+      // The host destroys views on screen/session change: prune them from
+      // the set without ever writing to them (a write would touch a dead
+      // renderable).
+      if (view.content.isDestroyed) {
+        views.delete(view);
+        continue;
+      }
+      // Views for other sessions coexist in the same set: an event for one
+      // session must not rewrite another session's text.
+      if (view.sessionID === sessionID) view.content.content = text;
     }
   };
 
