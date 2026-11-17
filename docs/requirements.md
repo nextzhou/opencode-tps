@@ -32,7 +32,7 @@ OpenCode exposes token counts but does not show model request throughput in its 
 
 ## Non-functional Requirements
 
-- Support OpenCode 1.18 or newer within major version 1.
+- Support OpenCode 2.0 or newer within major version 2.
 - Avoid a separate SolidJS runtime so the plugin works in packaged OpenCode builds.
 - Keep TPS aggregation deterministic and covered by unit tests.
 - Do not perform network requests or collect telemetry.
@@ -47,7 +47,7 @@ The session metric is:
 sum(output tokens + reasoning tokens) / sum(model request durations)
 ```
 
-Each model step is one model API request. Its duration starts at `session.next.step.started` and ends at the latest matching text, reasoning, or tool-input end event. OpenCode emits step completion after tool execution, so that timestamp is deliberately not used. Time between model requests is also excluded.
+Each model step is one model API request. Its duration starts at `session.step.started` and ends at the latest matching text, reasoning, or tool-input end event. OpenCode emits step completion after tool execution, so that timestamp is deliberately not used. Time between model requests is also excluded.
 
 ## Milestones
 
@@ -64,8 +64,9 @@ Each model step is one model API request. Its duration starts at `session.next.s
 
 ## Change Log
 
-| Date       | Change                         | Author   |
-| ---------- | ------------------------------ | -------- |
-| 2026-08-20 | Initial requirements           | nextzhou |
-| 2026-08-20 | Define undo and redo behavior  | nextzhou |
-| 2026-08-20 | Include request startup in TPS | nextzhou |
+| Date       | Change                                                                                                 | Author              |
+| ---------- | ------------------------------------------------------------------------------------------------------ | ------------------- |
+| 2026-08-20 | Initial requirements                                                                                   | nextzhou            |
+| 2026-08-20 | Define undo and redo behavior                                                                          | nextzhou            |
+| 2026-08-20 | Include request startup in TPS                                                                         | nextzhou            |
+| 2026-11-17 | Require OpenCode 2.x (V2 plugin API; `session.step.*` events, `event.created` as output-end timestamp) | AI agent (OpenCode) |
