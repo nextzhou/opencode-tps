@@ -39,8 +39,8 @@ mock.module("@opentui/core", () => ({
   TextRenderable: FakeTextRenderable,
 }));
 
-const { default: plugin } = (await import("../src/tui.js")) as {
-  setup: (ctx: unknown) => () => void;
+const { default: plugin } = (await import("../src/tui.js")) as unknown as {
+  default: { setup: (ctx: unknown) => () => void };
 };
 
 type TestMessage = Record<string, unknown>;
@@ -491,10 +491,9 @@ test("renders even when the catalog cache is cold", () => {
   );
 });
 
-test("drops the default model variant suffix but keeps explicit variants", () => {
-  // Local providers report variant "default": the literal V1 suffix
-  // clutters the line ("GPT-5.4 Default"). Explicit variants are shown.
-  const withVariant = (variant: string) => ({
+// A message reporting an explicit model variant (e.g. "default", "turbo").
+function messageWithVariant(variant: string) {
+  return {
     id: `msg-${variant}`,
     sessionID: "session",
     type: "assistant",
@@ -507,14 +506,18 @@ test("drops the default model variant suffix but keeps explicit variants", () =>
     },
     time: { created: 1000, completed: 3000 },
     content: [{ type: "text", text: "..." }],
-  });
+  };
+}
 
-  const def = renderSidebar({ messages: [withVariant("default")] });
+test("drops the default model variant suffix but keeps explicit variants", () => {
+  // Local providers report variant "default": the literal V1 suffix
+  // clutters the line ("GPT-5.4 Default"). Explicit variants are shown.
+  const def = renderSidebar({ messages: [messageWithVariant("default")] });
   expect(def.content.content).toBe(
     "Session avg  50.0 tok/s\nGPT-5.4  50.0 tok/s",
   );
 
-  const turbo = renderSidebar({ messages: [withVariant("turbo")] });
+  const turbo = renderSidebar({ messages: [messageWithVariant("turbo")] });
   expect(turbo.content.content).toBe(
     "Session avg  50.0 tok/s\nGPT-5.4 Turbo  50.0 tok/s",
   );
@@ -573,6 +576,7 @@ test("prunes destroyed views without writing to them", () => {
     sessionID: string;
   }) => FakeBoxRenderable;
   const second = render({ sessionID: "session" }).children[1];
+  if (!second) throw new Error("second sidebar view was not rendered");
 
   content.isDestroyed = true;
   messages.push(assistantMessage("msg-b", 300, 4000));
@@ -593,6 +597,7 @@ test("updates only the view whose session changed", () => {
     sessionID: string;
   }) => FakeBoxRenderable;
   const other = render({ sessionID: "other" }).children[1];
+  if (!other) throw new Error("other-session view was not rendered");
   expect(other.content).toBe("Waiting for completed output");
 
   handlers.get("session.revert.cleared")?.({ data: { sessionID: "session" } });
