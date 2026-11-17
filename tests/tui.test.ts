@@ -67,10 +67,19 @@ function assistantMessage(id: string, tokens: number, completed?: number) {
 function renderSidebar(input: {
   messages: TestMessage[];
   revertedMessageID?: string;
+  // Simulates the cold catalog: LocationCollection.list is Value[] | undefined.
+  coldCatalog?: boolean;
+  // Injectable catalog for model-name tests.
+  models?: Record<string, unknown>[];
+  providers?: Record<string, unknown>[];
 }) {
   const handlers = new Map<string, EventHandler>();
   const claims: Record<string, unknown>[] = [];
   let slotDissolved = false;
+  const modelList = () =>
+    input.coldCatalog ? undefined : (input.models ?? [gptModel]);
+  const providerList = () =>
+    input.coldCatalog ? undefined : (input.providers ?? [openaiProvider]);
   const context = {
     location: undefined,
     renderer: {},
@@ -89,8 +98,8 @@ function renderSidebar(input: {
       },
       location: {
         default: () => "loc",
-        model: { list: () => [gptModel] },
-        provider: { list: () => [openaiProvider] },
+        model: { list: modelList },
+        provider: { list: providerList },
       },
     },
     ui: {
@@ -447,4 +456,87 @@ test("excludes an assistant boundary message itself (host deletes seq >= boundar
     data: { sessionID: "session", to: "assistant-one" },
   });
   expect(content.content).toBe("Waiting for completed output");
+});
+
+test("renders even when the catalog cache is cold", () => {
+  // The host boots with a cold catalog: model/provider list can be
+  // undefined (LocationCollection.list => Value[] | undefined). The name
+  // falls back to the model id, but the block must not throw.
+  const messages = [assistantMessage("msg-a", 100, 2000)];
+  const { content } = renderSidebar({ messages, coldCatalog: true });
+
+  expect(content.content).toBe(
+    "Session avg  100.0 tok/s\ngpt-5.4  100.0 tok/s",
+  );
+});
+
+test("drops the default model variant suffix but keeps explicit variants", () => {
+  // Local providers report variant "default": the literal V1 suffix
+  // clutters the line ("GPT-5.4 Default"). Explicit variants are shown.
+  const withVariant = (variant: string) => ({
+    id: `msg-${variant}`,
+    sessionID: "session",
+    type: "assistant",
+    model: { providerID: "openai", id: "gpt-5.4", variant },
+    tokens: {
+      input: 0,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    time: { created: 1000, completed: 3000 },
+    content: [{ type: "text", text: "..." }],
+  });
+
+  const def = renderSidebar({ messages: [withVariant("default")] });
+  expect(def.content.content).toBe(
+    "Session avg  50.0 tok/s\nGPT-5.4  50.0 tok/s",
+  );
+
+  const turbo = renderSidebar({ messages: [withVariant("turbo")] });
+  expect(turbo.content.content).toBe(
+    "Session avg  50.0 tok/s\nGPT-5.4 Turbo  50.0 tok/s",
+  );
+});
+
+test("disambiguates identical model names across providers", () => {
+  // Two providers exposing the same model name -> "(Provider)" suffix.
+  const messages: TestMessage[] = [
+    {
+      ...assistantMessage("m-openai", 100, 2000),
+      model: { providerID: "openai", id: "gpt-5.4" },
+    },
+    {
+      ...assistantMessage("m-anthropic", 100, 4000),
+      model: { providerID: "anthropic", id: "gpt-5.4" },
+    },
+  ];
+  const { content } = renderSidebar({
+    messages,
+    models: [
+      {
+        providerID: "openai",
+        modelID: "gpt-5.4",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+      },
+      {
+        providerID: "anthropic",
+        modelID: "gpt-5.4",
+        id: "gpt-5.4",
+        name: "GPT-5.4",
+      },
+    ],
+    providers: [
+      { id: "openai", name: "OpenAI" },
+      { id: "anthropic", name: "Anthropic" },
+    ],
+  });
+
+  // Order by lastCompletedAt desc -> anthropic (4000) before openai (2000).
+  expect(content.content).toBe(
+    "Session avg  100.0 tok/s\n" +
+      "GPT-5.4 (Anthropic)  100.0 tok/s\n" +
+      "GPT-5.4 (OpenAI)  100.0 tok/s",
+  );
 });

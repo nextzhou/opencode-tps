@@ -69,6 +69,14 @@ function formatTps(tps: number): string {
   return tps.toFixed(1);
 }
 
+function variantName(variant: string): string {
+  return variant
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function modelIdentity(message: AssistantMessageLike): ModelIdentity {
   return {
     providerID: message.model.providerID,
@@ -90,21 +98,46 @@ function setup(context: Context) {
   const location = () => context.location ?? context.data.location.default();
 
   const modelName = (model: ModelIdentity): string => {
+    // LocationCollection.list is Value[] | undefined: with a cold catalog
+    // (session startup) it returns undefined — degrade, never throw.
     const info = (context.data.location.model.list(location()) ?? []).find(
       (item) =>
         item.providerID === model.providerID &&
         (item.modelID === model.id || item.id === model.id),
     );
-    return info?.name ?? model.id;
+    const name = info?.name ?? model.id;
+    // "default" is the neutral variant local providers report (LM Studio):
+    // showing it only clutters the model line.
+    const variant =
+      model.variant && model.variant.toLowerCase() !== "default"
+        ? model.variant
+        : undefined;
+    return variant ? `${name} ${variantName(variant)}` : name;
   };
 
   const summaryText = (
     summary: ReturnType<SessionTpsTracker["summary"]>,
   ): string => {
     if (summary.total.samples === 0) return "Waiting for completed output";
+
+    const rows = summary.byModel.map((metric) => ({
+      metric,
+      baseName: modelName(metric.model),
+    }));
+    const duplicateNames = new Set(
+      rows
+        .map((row) => row.baseName)
+        .filter((name, index, names) => names.indexOf(name) !== index),
+    );
     const lines = [`Session avg  ${formatTps(summary.total.tps)} tok/s`];
-    for (const metric of summary.byModel) {
-      lines.push(`${modelName(metric.model)}  ${formatTps(metric.tps)} tok/s`);
+    for (const { metric, baseName } of rows) {
+      const provider = (
+        context.data.location.provider.list(location()) ?? []
+      ).find((item) => item.id === metric.model.providerID);
+      const name = duplicateNames.has(baseName)
+        ? `${baseName} (${provider?.name ?? metric.model.providerID})`
+        : baseName;
+      lines.push(`${name}  ${formatTps(metric.tps)} tok/s`);
     }
     return lines.join("\n");
   };
