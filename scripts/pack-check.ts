@@ -53,7 +53,7 @@ await run([
 
 const entries = new Set(
   (await run(["tar", "-tzf", archive]))
-    .split("\n")
+    .split(/\r?\n/)
     .filter((entry) => entry.length > 0),
 );
 const requiredEntries = [
@@ -82,12 +82,23 @@ const packageJson = (await Bun.file(
 ).json()) as PackageJson;
 const packageName = requiredString(packageJson.name, "name");
 const pluginVersion = requiredString(
-  packageJson.devDependencies?.["@opencode-ai/plugin"],
-  "devDependencies.@opencode-ai/plugin",
+  packageJson.devDependencies?.["@opencode/plugin"],
+  "devDependencies.@opencode/plugin",
 );
 const opentuiVersion = requiredString(
   packageJson.devDependencies?.["@opentui/core"],
   "devDependencies.@opentui/core",
+);
+// `@opencode/plugin/tui` re-exports its Solid context module, which imports
+// solid-js. It is an optional peer that the OpenCode host provides, so the
+// smoke install (outside the host) must add it explicitly.
+const pluginPeerSolidVersion = requiredString(
+  (
+    (await Bun.file(
+      join(root, "node_modules", "@opencode", "plugin", "package.json"),
+    ).json()) as { peerDependencies?: Record<string, unknown> }
+  ).peerDependencies?.["solid-js"],
+  "@opencode/plugin peerDependencies.solid-js",
 );
 const smokeDirectory = await mkdtemp(join(tmpdir(), "opencode-tps-pack-"));
 
@@ -99,8 +110,9 @@ try {
       type: "module",
       dependencies: {
         [packageName]: pathToFileURL(archive).href,
-        "@opencode-ai/plugin": pluginVersion,
+        "@opencode/plugin": pluginVersion,
         "@opentui/core": opentuiVersion,
+        "solid-js": pluginPeerSolidVersion,
       },
     }),
   );
@@ -113,7 +125,7 @@ try {
       process.execPath,
       "-e",
       `const plugin = (await import(${JSON.stringify(`${packageName}/tui`)})).default;
-if (plugin?.id !== "opencode-tps" || typeof plugin.tui !== "function") {
+if (plugin?.id !== "opencode-tps" || typeof plugin.setup !== "function") {
   throw new Error("Invalid TUI plugin export");
 }`,
     ],
