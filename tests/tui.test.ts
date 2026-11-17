@@ -304,3 +304,147 @@ test("respects persisted reverts and adapts their lifecycle events", () => {
     "Session avg  100.0 tok/s\nGPT-5.4  100.0 tok/s",
   );
 });
+
+test("purges precise samples when a revert commits", () => {
+  const messages: TestMessage[] = [assistantMessage("msg-a", 100, 2000)];
+  const { content, handlers } = renderSidebar({ messages });
+
+  expect(content.content).toBe(
+    "Session avg  100.0 tok/s\nGPT-5.4  100.0 tok/s",
+  );
+
+  messages.push(assistantMessage("msg-b", 300, 5000));
+  handlers.get("session.step.started")?.({
+    data: {
+      sessionID: "session",
+      assistantMessageID: "msg-b",
+      model: { providerID: "openai", id: "gpt-5.4" },
+      started: 3000,
+    },
+  });
+  handlers.get("session.text.ended")?.({
+    created: 4000,
+    data: {
+      sessionID: "session",
+      assistantMessageID: "msg-b",
+      ordinal: 0,
+      text: "...",
+    },
+  });
+  handlers.get("session.step.ended")?.({
+    created: 5000,
+    data: {
+      sessionID: "session",
+      assistantMessageID: "msg-b",
+      finish: "stop",
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 300,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    },
+  });
+  expect(content.content).toBe(
+    "Session avg  200.0 tok/s\nGPT-5.4  200.0 tok/s",
+  );
+
+  messages.length = 1;
+  // The revert commit is the only purge channel (`message.removed` does not
+  // exist in V2, so nothing else fires here on purpose).
+  handlers.get("session.revert.committed")?.({
+    data: { sessionID: "session", to: "msg-b" },
+  });
+  expect(content.content).toBe(
+    "Session avg  100.0 tok/s\nGPT-5.4  100.0 tok/s",
+  );
+
+  handlers.get("session.deleted")?.({ data: { sessionID: "session" } });
+});
+
+test("purges tracker samples when a session is deleted", () => {
+  const messages: TestMessage[] = [assistantMessage("msg-live", 100)];
+  const { content, handlers } = renderSidebar({ messages });
+
+  handlers.get("session.step.started")?.({
+    data: {
+      sessionID: "session",
+      assistantMessageID: "msg-live",
+      model: { providerID: "openai", id: "gpt-5.4" },
+      started: 1000,
+    },
+  });
+  handlers.get("session.text.ended")?.({
+    created: 2000,
+    data: {
+      sessionID: "session",
+      assistantMessageID: "msg-live",
+      ordinal: 0,
+      text: "...",
+    },
+  });
+  handlers.get("session.step.ended")?.({
+    created: 3000,
+    data: {
+      sessionID: "session",
+      assistantMessageID: "msg-live",
+      finish: "stop",
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 100,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    },
+  });
+  expect(content.content).toBe(
+    "Session avg  100.0 tok/s\nGPT-5.4  100.0 tok/s",
+  );
+
+  // The session is deleted: the host stops returning messages. A later
+  // refresh must NOT revive the precise sample left in the tracker.
+  messages.length = 0;
+  handlers.get("session.deleted")?.({ data: { sessionID: "session" } });
+  handlers.get("session.revert.cleared")?.({
+    data: { sessionID: "session" },
+  });
+  expect(content.content).toBe("Waiting for completed output");
+});
+
+test("excludes an assistant boundary message itself (host deletes seq >= boundary)", () => {
+  // The boundary is an ASSISTANT message — the case that discriminates the
+  // off-by-one in `to` (a user boundary cannot: users contribute no
+  // tokens). The host deletes seq >= boundary, so the limit itself does
+  // not count.
+  const messages: TestMessage[] = [
+    { id: "user-one", sessionID: "session", type: "user" },
+    assistantMessage("assistant-one", 100, 2000),
+    assistantMessage("assistant-two", 300, 4000),
+  ];
+  const { content, handlers } = renderSidebar({ messages });
+
+  // 400 tokens / 2000 ms = 200.0
+  expect(content.content).toBe(
+    "Session avg  200.0 tok/s\nGPT-5.4  200.0 tok/s",
+  );
+
+  handlers.get("session.revert.staged")?.({
+    data: { sessionID: "session", revert: { messageID: "assistant-one" } },
+  });
+  // The boundary (assistant-one) stays out: no visible messages.
+  expect(content.content).toBe("Waiting for completed output");
+
+  handlers.get("session.revert.cleared")?.({
+    data: { sessionID: "session" },
+  });
+  expect(content.content).toBe(
+    "Session avg  200.0 tok/s\nGPT-5.4  200.0 tok/s",
+  );
+
+  handlers.get("session.revert.committed")?.({
+    data: { sessionID: "session", to: "assistant-one" },
+  });
+  expect(content.content).toBe("Waiting for completed output");
+});

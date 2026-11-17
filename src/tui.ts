@@ -303,7 +303,35 @@ function setup(context: Context) {
 
   on("session.revert.committed", (event) => {
     const data = event.data as RevertCommittedData;
+    // The host truncates the conversation at the boundary (seq >= boundary
+    // removed): purge the precise samples whose message no longer exists.
+    const keep = new Set(
+      (
+        context.data.session.message.list(data.sessionID) as { id: string }[]
+      ).map((message) => message.id),
+    );
+    const ids = completedIDs.get(data.sessionID);
+    if (ids) {
+      for (const id of ids) {
+        if (!keep.has(id)) {
+          tracker.removeMessage(data.sessionID, id);
+          ids.delete(id);
+        }
+      }
+    }
     refresh(data.sessionID, data.to);
+  });
+
+  on("session.deleted", (event) => {
+    const data = event.data as { sessionID: string };
+    // Purge the precise samples too — completedIDs is only bookkeeping;
+    // without this a deleted session would resurrect its TPS on a later
+    // refresh (and the map would grow forever).
+    const ids = completedIDs.get(data.sessionID);
+    if (ids) {
+      for (const id of ids) tracker.removeMessage(data.sessionID, id);
+    }
+    completedIDs.delete(data.sessionID);
   });
 
   return () => {
