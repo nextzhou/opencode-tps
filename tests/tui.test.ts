@@ -270,6 +270,27 @@ test("drops history whose end precedes the message start", () => {
   expect(content.content).toBe("Waiting for completed output");
 });
 
+test("omits history without a completed end even when the stream is valid", () => {
+  // Upstream V1 skips messages whose `time.completed` is absent (interrupted
+  // output): a valid `streamed` window alone must not include them.
+  const interrupted = {
+    id: "interrupted",
+    type: "assistant",
+    model: { providerID: "openai", id: "gpt-5.4" },
+    tokens: {
+      input: 0,
+      output: 100,
+      reasoning: 0,
+      cache: { read: 0, write: 0 },
+    },
+    time: { created: 1000, streamed: 3000 },
+    content: [{ type: "text", text: "..." }],
+  };
+  const { content } = renderSidebar({ messages: [interrupted] });
+
+  expect(content.content).toBe("Waiting for completed output");
+});
+
 test("omits historical pure tool-call steps", () => {
   // Upstream contract: "omit historical pure tool-call steps" — a message
   // whose content is only tool parts has no text/reasoning output evidence.

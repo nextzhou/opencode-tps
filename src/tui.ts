@@ -169,6 +169,10 @@ function setup(context: Context) {
       if (message.type !== "assistant" || message.error || !message.tokens) {
         continue;
       }
+      // Contract parity with V1: messages without a completed output end
+      // (interrupted output) are omitted — a valid `streamed` window alone
+      // must not produce a historical sample.
+      if (message.time?.completed == null) continue;
       // Contract: omit historical pure tool-call steps — require evidence of
       // text/reasoning output in the message content.
       const hasOutputEvidence = (message.content ?? []).some(
