@@ -14,34 +14,36 @@ An OpenCode TUI plugin that displays request-level session and per-model tokens-
 
 ## Requirements
 
-- OpenCode `>=1.18.0 <2`
+- OpenCode `>=2.0.0`
+
+> **Note — version compatibility:** 0.2.x supports OpenCode 1.x (V1 plugin API). The next release targets OpenCode 2.x (V2 plugin API) and requires OpenCode `>=2.0.0`.
 
 ## Installation
 
 Install the plugin globally from npm:
 
 ```bash
-opencode plugin @nextzhou/opencode-tps -g
+opencode plugin add @nextzhou/opencode-tps
 ```
 
 Start or restart OpenCode, then press `Ctrl+X`, followed by lowercase `b`, to open the sidebar. This is the default `sidebar_toggle` keybinding and may differ if you customized `tui.json`.
 
 ### Upgrade
 
-Replace an existing installation with the latest published version:
+Update an existing installation to the latest published version:
 
 ```bash
-opencode plugin @nextzhou/opencode-tps -g --force
+opencode plugin update @nextzhou/opencode-tps
 ```
 
 ### Load a Local Checkout
 
-For local development, add the project directory to the `plugin` array in your global `tui.json`:
+For local development, add the project directory to the `plugins` array in your global `cli.json` (TUI-only plugins are configured there in OpenCode 2):
 
 ```json
 {
-  "$schema": "https://opencode.ai/tui.json",
-  "plugin": ["/absolute/path/to/opencode-tps"]
+  "$schema": "https://opencode.ai/v2/cli.json",
+  "plugins": ["/absolute/path/to/opencode-tps"]
 }
 ```
 
@@ -53,7 +55,7 @@ The plugin calculates weighted throughput by aggregating tokens and request dura
 TPS = sum(output tokens + reasoning tokens) / sum(model request durations)
 ```
 
-A request duration begins at `session.next.step.started` and ends at the latest text, reasoning, or tool-input end event for that model request. This includes request startup and time to first token. Step completion and tool-result timestamps are deliberately not used, so tool execution and waiting between model requests are excluded.
+A request duration begins at `session.step.started` and ends at the latest text, reasoning, or tool-input end event for that model request. This includes request startup and time to first token. Step completion and tool-result timestamps are deliberately not used, so tool execution and waiting between model requests are excluded.
 
 When precise stream events are unavailable for an older message, the plugin estimates its request window from the assistant message creation timestamp through the final persisted text or reasoning part. Pure tool-call historical steps without those timestamps are omitted.
 
